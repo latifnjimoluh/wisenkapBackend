@@ -177,6 +177,22 @@ app.get('/budgets', (req, res) => {
   });
 });
 
+app.get('/budgets/:budgetId/expenses', (req, res) => {
+  const { budgetId } = req.params;
+
+  // SQL query pour obtenir les dépenses pour le budget donné
+  const query = 'SELECT * FROM expenses WHERE budgetId = ?';
+  db.query(query, [budgetId], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la récupération des dépenses:', err);
+      return res.status(500).json({ message: 'Erreur lors de la récupération des dépenses.', error: err });
+    }
+    res.status(200).json(results);
+  });
+});
+
+
+
 // Ajouter un budget
 app.post('/budgets', (req, res) => {
   if (!req.session.user) {
