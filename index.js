@@ -247,6 +247,37 @@ app.post('/budgets/:budgetId/expenses', (req, res) => {
   res.status(201).json({ message: 'Dépenses ajoutées avec succès.' });
 });
 
+// Ajouter des transactions à un budget
+app.post('/transactions', (req, res) => {
+  const { budgetId, transactions } = req.body;
+
+  console.log('Requête d\'ajout de transactions pour le budget ID:', budgetId, { transactions });
+
+  const queryTransaction = 'INSERT INTO transactions (category, amount, budgetId, comment, createdAt, updatedAt) VALUES (?, ?, ?, ?, NOW(), NOW())';
+  const queryUpdateBudget = 'UPDATE budgets SET amount = amount - ? WHERE id = ?';
+
+  const totalTransactionAmount = transactions.reduce((sum, transaction) => sum + parseFloat(transaction.amount || 0), 0);
+
+  transactions.forEach(transaction => {
+    db.query(queryTransaction, [transaction.category, transaction.amount, budgetId, transaction.comment || ''], (err, result) => {
+      if (err) {
+        console.error('Erreur lors de l\'ajout de la transaction:', err);
+      } else {
+        console.log('Transaction ajoutée avec succès:', result.insertId);
+      }
+    });
+  });
+
+  db.query(queryUpdateBudget, [totalTransactionAmount, budgetId], (err, result) => {
+    if (err) {
+      console.error('Erreur lors de la mise à jour du budget:', err);
+      return res.status(500).json({ message: 'Erreur lors de la mise à jour du budget.', error: err });
+    }
+    console.log('Budget mis à jour avec succès:', result);
+    res.status(201).json({ message: 'Transactions ajoutées et budget mis à jour avec succès.' });
+  });
+});
+
 // Ajouter une épargne à un budget
 app.post('/savings', (req, res) => {
   const { budgetId, amount, date } = req.body;
@@ -254,6 +285,7 @@ app.post('/savings', (req, res) => {
   console.log('Requête d\'ajout d\'épargne pour le budget ID:', budgetId, { amount, date });
 
   const querySaving = 'INSERT INTO savings (amount, date, budgetId, createdAt, updatedAt) VALUES (?, ?, ?, NOW(), NOW())';
+  const queryUpdateBudget = 'UPDATE budgets SET amount = amount - ? WHERE id = ?';
 
   db.query(querySaving, [amount, date, budgetId], (err, result) => {
     if (err) {
@@ -261,10 +293,43 @@ app.post('/savings', (req, res) => {
       return res.status(500).json({ message: 'Erreur lors de l\'ajout de l\'épargne.', error: err });
     }
     console.log('Épargne ajoutée avec succès:', result.insertId);
-    res.status(201).json({ message: 'Épargne ajoutée avec succès.' });
+
+    db.query(queryUpdateBudget, [amount, budgetId], (err, result) => {
+      if (err) {
+        console.error('Erreur lors de la mise à jour du budget:', err);
+        return res.status(500).json({ message: 'Erreur lors de la mise à jour du budget.', error: err });
+      }
+      console.log('Budget mis à jour avec succès:', result);
+      res.status(201).json({ message: 'Épargne ajoutée et budget mis à jour avec succès.' });
+    });
   });
 });
 
+// Récupérer l'historique des épargnes
+app.get('/savings', (req, res) => {
+  if (!req.session.user) {
+    console.warn('Utilisateur non authentifié');
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  console.log('Requête de récupération des épargnes pour l\'utilisateur ID:', req.session.user.id);
+
+  const query = `
+    SELECT s.amount, s.date, b.category as budgetCategory
+    FROM savings s
+    JOIN budgets b ON s.budgetId = b.id
+    WHERE b.userId = ?
+  `;
+  
+  db.query(query, [req.session.user.id], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la récupération des épargnes:', err);
+      return res.status(500).json({ message: 'Erreur lors de la récupération des épargnes.', error: err });
+    }
+    console.log('Épargnes récupérées:', results);
+    res.status(200).json(results);
+  });
+});
 
 
 // Route de déconnexion
@@ -282,40 +347,6 @@ app.post('/auth/logout', (req, res) => {
     console.warn('Échec de la déconnexion: Aucun utilisateur en session');
     return res.status(400).json({ message: 'Vous n\'êtes pas connecté.' });
   }
-});
-
-
-app.get('/budgets/:budgetId/expenses', (req, res) => {
-  const { budgetId } = req.params;
-
-  const query = 'SELECT * FROM expenses WHERE budgetId = ?';
-  db.query(query, [budgetId], (err, results) => {
-    if (err) {
-      console.error('Erreur lors de la récupération des dépenses:', err);
-      return res.status(500).json({ message: 'Erreur lors de la récupération des dépenses.', error: err });
-    }
-    res.status(200).json(results);
-  });
-});
-
-// Ajouter des transactions
-app.post('/transactions', (req, res) => {
-  const { budgetId, transactions } = req.body;
-
-  const query = 'INSERT INTO transactions (category, amount, budgetId, comment, createdAt, updatedAt) VALUES (?, ?, ?, ?, NOW(), NOW())';
-
-  transactions.forEach(transaction => {
-    const { category, amount, comment } = transaction;
-    db.query(query, [category, amount, budgetId, comment], (err, result) => {
-      if (err) {
-        console.error('Erreur lors de l\'ajout de la transaction:', err);
-      } else {
-        console.log('Transaction ajoutée avec succès:', result.insertId);
-      }
-    });
-  });
-
-  res.status(201).json({ message: 'Transactions ajoutées avec succès.' });
 });
 
 app.listen(PORT, () => {
