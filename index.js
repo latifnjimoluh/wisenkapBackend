@@ -294,6 +294,33 @@ app.post('/transactions', (req, res) => {
   });
 });
 
+// Récupérer l'historique des transactions
+app.get('/transactions', (req, res) => {
+  if (!req.session.user) {
+    console.warn('Utilisateur non authentifié');
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  console.log('Requête de récupération des transactions pour l\'utilisateur ID:', req.session.user.id);
+
+  const query = `
+    SELECT t.category, t.amount, t.comment, t.createdAt, b.category as budgetCategory
+    FROM transactions t
+    JOIN budgets b ON t.budgetId = b.id
+    WHERE b.userId = ?
+  `;
+  
+  db.query(query, [req.session.user.id], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la récupération des transactions:', err);
+      return res.status(500).json({ message: 'Erreur lors de la récupération des transactions.', error: err });
+    }
+    console.log('Transactions récupérées:', results);
+    res.status(200).json(results);
+  });
+});
+
+
 // Ajouter une épargne à un budget
 app.post('/savings', (req, res) => {
   const { budgetId, amount, date } = req.body;
@@ -364,6 +391,79 @@ app.post('/auth/logout', (req, res) => {
     return res.status(400).json({ message: 'Vous n\'êtes pas connecté.' });
   }
 });
+
+// ... (Imports and initial setup)
+
+app.get('/alerts', (req, res) => {
+  const userId = req.session.user?.id;
+  if (!userId) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'SELECT * FROM alerts WHERE userId = ?';
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la récupération des alertes:', err);
+      return res.status(500).json({ message: 'Erreur lors de la récupération des alertes.', error: err });
+    }
+    res.status(200).json(results);
+  });
+});
+
+app.post('/alerts', (req, res) => {
+  const { time, comment, isActive } = req.body;
+  const userId = req.session.user?.id;
+  if (!userId) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'INSERT INTO alerts (time, comment, isActive, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, NOW(), NOW())';
+  db.query(query, [time, comment, isActive, userId], (err, result) => {
+    if (err) {
+      console.error('Erreur lors de la création de l\'alerte:', err);
+      return res.status(500).json({ message: 'Erreur lors de la création de l\'alerte.', error: err });
+    }
+    res.status(201).json({ message: 'Alerte créée avec succès.', alertId: result.insertId });
+  });
+});
+
+app.put('/alerts/:alertId', (req, res) => {
+  const { alertId } = req.params;
+  const { time, comment, isActive } = req.body;
+  const userId = req.session.user?.id;
+  if (!userId) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'UPDATE alerts SET time = ?, comment = ?, isActive = ?, updatedAt = NOW() WHERE id = ? AND userId = ?';
+  db.query(query, [time, comment, isActive, alertId, userId], (err, result) => {
+    if (err) {
+      console.error('Erreur lors de la mise à jour de l\'alerte:', err);
+      return res.status(500).json({ message: 'Erreur lors de la mise à jour de l\'alerte.', error: err });
+    }
+    res.status(200).json({ message: 'Alerte mise à jour avec succès.' });
+  });
+});
+
+app.delete('/alerts/:alertId', (req, res) => {
+  const { alertId } = req.params;
+  const userId = req.session.user?.id;
+  if (!userId) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'DELETE FROM alerts WHERE id = ? AND userId = ?';
+  db.query(query, [alertId, userId], (err, result) => {
+    if (err) {
+      console.error('Erreur lors de la suppression de l\'alerte:', err);
+      return res.status(500).json({ message: 'Erreur lors de la suppression de l\'alerte.', error: err });
+    }
+    res.status(200).json({ message: 'Alerte supprimée avec succès.' });
+  });
+});
+
+// ... (Rest of the server code)
+
 
 app.listen(PORT, () => {
   console.log(`Le serveur fonctionne sur le port ${PORT}`);
