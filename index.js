@@ -3,6 +3,7 @@ const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const cron = require('node-cron');
 const session = require('express-session');
 require('dotenv').config();
 
@@ -392,8 +393,7 @@ app.post('/auth/logout', (req, res) => {
   }
 });
 
-// ... (Imports and initial setup)
-
+// Récupérer les alertes
 app.get('/alerts', (req, res) => {
   const userId = req.session.user?.id;
   if (!userId) {
@@ -426,6 +426,7 @@ app.post('/alerts', (req, res) => {
     res.status(201).json({ message: 'Alerte créée avec succès.', alertId: result.insertId });
   });
 });
+
 
 app.put('/alerts/:alertId', (req, res) => {
   const { alertId } = req.params;
@@ -462,7 +463,48 @@ app.delete('/alerts/:alertId', (req, res) => {
   });
 });
 
-// ... (Rest of the server code)
+cron.schedule('* * * * *', () => {
+  console.log('Vérification des alertes...');
+  const now = new Date();
+  const formattedTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+  // Requête SQL pour récupérer les alertes actives correspondant à l'heure actuelle
+  const query = 'SELECT * FROM alerts WHERE isActive = true AND time = ?';
+  db.query(query, [formattedTime], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la récupération des alertes pour les notifications:', err);
+      return;
+    }
+
+    results.forEach((alert) => {
+      sendPushNotification(alert);
+    });
+  });
+});
+
+// Fonction pour envoyer une notification push
+const sendPushNotification = (alert) => {
+  axios.post('https://fcm.googleapis.com/fcm/send', {
+    to: alert.userToken, // Token de l'utilisateur pour les notifications push
+    notification: {
+      title: 'Alerte',
+      body: alert.comment || 'Votre alerte est due!',
+      sound: 'default',
+    },
+    data: {
+      time: alert.time,
+    },
+  }, {
+    headers: {
+      Authorization: `key=${process.env.FCM_SERVER_KEY}`, // Votre clé serveur FCM
+      'Content-Type': 'application/json',
+    },
+  }).then(response => {
+    console.log('Notification envoyée:', response.data);
+  }).catch(error => {
+    console.error('Erreur lors de l\'envoi de la notification:', error);
+  });
+};
 
 
 app.listen(PORT, () => {
