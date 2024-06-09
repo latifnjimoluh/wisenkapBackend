@@ -3,7 +3,6 @@ const mysql = require('mysql2');
 const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const cron = require('node-cron');
 const session = require('express-session');
 require('dotenv').config();
 
@@ -44,6 +43,7 @@ app.use(session({
 app.get('/test', (req, res) => {
   res.send('Le serveur fonctionne');
 });
+
 
 // Route d'inscription
 app.post('/auth/signup', async (req, res) => {
@@ -392,119 +392,6 @@ app.post('/auth/logout', (req, res) => {
     return res.status(400).json({ message: 'Vous n\'êtes pas connecté.' });
   }
 });
-
-// Récupérer les alertes
-app.get('/alerts', (req, res) => {
-  const userId = req.session.user?.id;
-  if (!userId) {
-    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
-  }
-
-  const query = 'SELECT * FROM alerts WHERE userId = ?';
-  db.query(query, [userId], (err, results) => {
-    if (err) {
-      console.error('Erreur lors de la récupération des alertes:', err);
-      return res.status(500).json({ message: 'Erreur lors de la récupération des alertes.', error: err });
-    }
-    res.status(200).json(results);
-  });
-});
-
-app.post('/alerts', (req, res) => {
-  const { time, comment, isActive } = req.body;
-  const userId = req.session.user?.id;
-  if (!userId) {
-    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
-  }
-
-  const query = 'INSERT INTO alerts (time, comment, isActive, userId, createdAt, updatedAt) VALUES (?, ?, ?, ?, NOW(), NOW())';
-  db.query(query, [time, comment, isActive, userId], (err, result) => {
-    if (err) {
-      console.error('Erreur lors de la création de l\'alerte:', err);
-      return res.status(500).json({ message: 'Erreur lors de la création de l\'alerte.', error: err });
-    }
-    res.status(201).json({ message: 'Alerte créée avec succès.', alertId: result.insertId });
-  });
-});
-
-
-app.put('/alerts/:alertId', (req, res) => {
-  const { alertId } = req.params;
-  const { time, comment, isActive } = req.body;
-  const userId = req.session.user?.id;
-  if (!userId) {
-    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
-  }
-
-  const query = 'UPDATE alerts SET time = ?, comment = ?, isActive = ?, updatedAt = NOW() WHERE id = ? AND userId = ?';
-  db.query(query, [time, comment, isActive, alertId, userId], (err, result) => {
-    if (err) {
-      console.error('Erreur lors de la mise à jour de l\'alerte:', err);
-      return res.status(500).json({ message: 'Erreur lors de la mise à jour de l\'alerte.', error: err });
-    }
-    res.status(200).json({ message: 'Alerte mise à jour avec succès.' });
-  });
-});
-
-app.delete('/alerts/:alertId', (req, res) => {
-  const { alertId } = req.params;
-  const userId = req.session.user?.id;
-  if (!userId) {
-    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
-  }
-
-  const query = 'DELETE FROM alerts WHERE id = ? AND userId = ?';
-  db.query(query, [alertId, userId], (err, result) => {
-    if (err) {
-      console.error('Erreur lors de la suppression de l\'alerte:', err);
-      return res.status(500).json({ message: 'Erreur lors de la suppression de l\'alerte.', error: err });
-    }
-    res.status(200).json({ message: 'Alerte supprimée avec succès.' });
-  });
-});
-
-cron.schedule('* * * * *', () => {
-  console.log('Vérification des alertes...');
-  const now = new Date();
-  const formattedTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-  // Requête SQL pour récupérer les alertes actives correspondant à l'heure actuelle
-  const query = 'SELECT * FROM alerts WHERE isActive = true AND time = ?';
-  db.query(query, [formattedTime], (err, results) => {
-    if (err) {
-      console.error('Erreur lors de la récupération des alertes pour les notifications:', err);
-      return;
-    }
-
-    results.forEach((alert) => {
-      sendPushNotification(alert);
-    });
-  });
-});
-
-// Fonction pour envoyer une notification push
-const sendPushNotification = (alert) => {
-  axios.post('https://fcm.googleapis.com/fcm/send', {
-    to: alert.userToken, // Token de l'utilisateur pour les notifications push
-    notification: {
-      title: 'Alerte',
-      body: alert.comment || 'Votre alerte est due!',
-      sound: 'default',
-    },
-    data: {
-      time: alert.time,
-    },
-  }, {
-    headers: {
-      Authorization: `key=${process.env.FCM_SERVER_KEY}`, // Votre clé serveur FCM
-      'Content-Type': 'application/json',
-    },
-  }).then(response => {
-    console.log('Notification envoyée:', response.data);
-  }).catch(error => {
-    console.error('Erreur lors de l\'envoi de la notification:', error);
-  });
-};
 
 
 app.listen(PORT, () => {

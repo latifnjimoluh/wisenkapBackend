@@ -20,6 +20,8 @@
     "express-session": "^1.18.0",
     "jsonwebtoken": "^9.0.2",
     "mysql": "^2.18.1",
-    "mysql2": "^3.10.0"
+    "mysql2": "^3.10.0",
+    "node-gcm": "^1.1.4",
+    "node-gyp": "^10.1.0"
   }
 }
