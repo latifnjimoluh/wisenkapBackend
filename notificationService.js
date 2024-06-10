@@ -1,28 +1,24 @@
-const { Expo } = require('expo-server-sdk');
-let expo = new Expo();
+const admin = require('firebase-admin');
+const serviceAccount = require('./serviceAccountKey.json');
 
-const sendPushNotification = async (targetExpoPushToken, message) => {
-  if (!Expo.isExpoPushToken(targetExpoPushToken)) {
-    console.error(`Push token ${targetExpoPushToken} is not a valid Expo push token`);
-    return;
-  }
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
-  let messages = [{
-    to: targetExpoPushToken,
-    sound: 'default',
-    body: message,
-    data: { message }
-  }];
+const sendPushNotification = async (token, message) => {
+  const messagePayload = {
+    notification: {
+      title: 'Notification',
+      body: message,
+    },
+    token: token,
+  };
 
-  let chunks = expo.chunkPushNotifications(messages);
-  let tickets = [];
-  for (let chunk of chunks) {
-    try {
-      let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-      tickets.push(...ticketChunk);
-    } catch (error) {
-      console.error(error);
-    }
+  try {
+    const response = await admin.messaging().send(messagePayload);
+    console.log('Notification envoyée avec succès:', response);
+  } catch (error) {
+    console.error('Erreur lors de l\'envoi de la notification:', error);
   }
 };
 

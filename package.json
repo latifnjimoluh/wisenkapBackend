@@ -19,6 +19,7 @@
     "expo-server-sdk": "^3.10.0",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
+    "firebase-admin": "^12.1.1",
     "jsonwebtoken": "^9.0.2",
     "mime": "^4.0.3",
     "mysql": "^2.18.1",

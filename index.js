@@ -47,13 +47,10 @@ app.get('/test', (req, res) => {
 
 
 
-// Importer le service de notification
-
 // Enregistrer le token de notification
 app.post('/expoPushTokens', (req, res) => {
   const { token } = req.body;
 
-  // Enregistrer le token dans la base de données
   const query = 'INSERT INTO expo_push_tokens (token) VALUES (?)';
   db.query(query, [token], (err, result) => {
     if (err) {
@@ -76,7 +73,6 @@ app.post('/sendNotification', async (req, res) => {
     res.status(500).json({ message: 'Erreur lors de l\'envoi de la notification.', error });
   }
 });
-
 
 
 // Route d'inscription
