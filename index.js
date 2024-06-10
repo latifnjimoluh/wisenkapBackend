@@ -4,7 +4,6 @@ const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const session = require('express-session');
-const { sendPushNotification } = require('./notificationService');
 require('dotenv').config();
 
 const app = express();
@@ -46,33 +45,6 @@ app.get('/test', (req, res) => {
 });
 
 
-
-// Enregistrer le token de notification
-app.post('/expoPushTokens', (req, res) => {
-  const { token } = req.body;
-
-  const query = 'INSERT INTO expo_push_tokens (token) VALUES (?)';
-  db.query(query, [token], (err, result) => {
-    if (err) {
-      console.error('Erreur lors de l\'enregistrement du token:', err);
-      return res.status(500).json({ message: 'Erreur lors de l\'enregistrement du token.' });
-    }
-    res.status(201).json({ message: 'Token enregistré avec succès.' });
-  });
-});
-
-// Envoyer une notification push
-app.post('/sendNotification', async (req, res) => {
-  const { token, message } = req.body;
-
-  try {
-    await sendPushNotification(token, message);
-    res.status(200).json({ message: 'Notification envoyée avec succès.' });
-  } catch (error) {
-    console.error('Erreur lors de l\'envoi de la notification:', error);
-    res.status(500).json({ message: 'Erreur lors de l\'envoi de la notification.', error });
-  }
-});
 
 
 // Route d'inscription
