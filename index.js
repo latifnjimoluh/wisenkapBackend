@@ -126,15 +126,12 @@ app.get('/auth/user', (req, res) => {
     return res.status(401).json({ message: 'Utilisateur non authentifié.' });
   }
   
-  console.log('Requête des détails utilisateur pour l\'utilisateur ID:', req.session.user.id);
-
-  const query = 'SELECT email, phone, firstName, gender, dob, country, postalCode FROM users WHERE id = ?';
+  const query = 'SELECT email, phone, firstName, gender, dob, country, postalCode, photoUri FROM users WHERE id = ?';
   db.query(query, [req.session.user.id], (err, results) => {
     if (err) {
       console.error('Erreur lors de la récupération des détails utilisateur:', err);
       return res.status(500).json({ message: 'Erreur lors de la récupération des détails utilisateur.', error: err });
     }
-    console.log('Détails utilisateur récupérés:', results[0]);
     res.status(200).json(results[0]);
   });
 });
@@ -146,19 +143,18 @@ app.put('/auth/user', (req, res) => {
     return res.status(401).json({ message: 'Utilisateur non authentifié.' });
   }
 
-  const { phone, firstName, gender, dob, country, postalCode } = req.body;
-  console.log('Requête de mise à jour des détails utilisateur pour l\'utilisateur ID:', req.session.user.id);
+  const { phone, firstName, gender, dob, country, postalCode, photoUri } = req.body;
 
-  const query = 'UPDATE users SET phone = ?, firstName = ?, gender = ?, dob = ?, country = ?, postalCode = ? WHERE id = ?';
-  db.query(query, [phone, firstName, gender, dob, country, postalCode, req.session.user.id], (err, result) => {
+  const query = 'UPDATE users SET phone = ?, firstName = ?, gender = ?, dob = ?, country = ?, postalCode = ?, photoUri = ? WHERE id = ?';
+  db.query(query, [phone, firstName, gender, dob, country, postalCode, photoUri, req.session.user.id], (err, result) => {
     if (err) {
       console.error('Erreur lors de la mise à jour des détails utilisateur:', err);
       return res.status(500).json({ message: 'Erreur lors de la mise à jour des détails utilisateur.', error: err });
     }
-    console.log('Détails utilisateur mis à jour:', result);
     res.status(200).json({ message: 'Informations utilisateur mises à jour avec succès.' });
   });
 });
+
 
 // Récupérer les budgets de l'utilisateur connecté
 app.get('/budgets', (req, res) => {
