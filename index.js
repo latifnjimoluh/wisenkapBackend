@@ -4,6 +4,8 @@ const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const session = require('express-session');
+const nodemailer = require('nodemailer');
+
 require('dotenv').config();
 
 const app = express();
@@ -475,6 +477,93 @@ app.get('/currencies/active', (req, res) => {
       return;
     }
     res.json({ currency: results[0] });
+  });
+});
+
+
+// Transporteur pour envoyer des e-mails
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// Envoi du code de réinitialisation
+app.post('/auth/send-reset-code', (req, res) => {
+  const { email } = req.body;
+  const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const resetCodeExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+  // Stocker le code et l'expiration dans la base de données
+  const query = 'UPDATE users SET resetCode = ?, resetCodeExpires = ? WHERE email = ?';
+  db.query(query, [resetCode, resetCodeExpires, email], (err, result) => {
+    if (err) {
+      console.error('Erreur lors de l\'enregistrement du code de réinitialisation:', err);
+      return res.status(500).json({ message: 'Erreur lors de l\'enregistrement du code de réinitialisation.', error: err });
+    }
+
+    // Envoyer le code par e-mail
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Réinitialisation du code de sécurité',
+      text: `Votre code de réinitialisation est : ${resetCode}. Ce code expirera dans 15 minutes.`
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.error('Erreur lors de l\'envoi de l\'e-mail:', error);
+        return res.status(500).json({ message: 'Erreur lors de l\'envoi de l\'e-mail.' });
+      }
+      console.log('E-mail envoyé:', info.response);
+      res.status(200).json({ message: 'E-mail de réinitialisation envoyé.' });
+    });
+  });
+});
+
+// Vérification du code de réinitialisation
+app.post('/auth/verify-reset-code', (req, res) => {
+  const { resetCode, email } = req.body;
+  const query = 'SELECT * FROM users WHERE resetCode = ? AND email = ? AND resetCodeExpires > NOW()';
+  db.query(query, [resetCode, email], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la vérification du code de réinitialisation:', err);
+      return res.status(500).json({ message: 'Erreur lors de la vérification du code de réinitialisation.', error: err });
+    }
+
+    if (results.length > 0) {
+      res.status(200).json({ isValid: true });
+    } else {
+      res.status(400).json({ isValid: false, message: 'Code de réinitialisation invalide ou expiré.' });
+    }
+  });
+});
+
+// Mettre à jour le code de sécurité
+app.post('/auth/update-code', async (req, res) => {
+  const { email, resetCode, newCode } = req.body;
+  const query = 'SELECT * FROM users WHERE email = ? AND resetCode = ? AND resetCodeExpires > NOW()';
+  db.query(query, [email, resetCode], async (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la vérification du code de réinitialisation:', err);
+      return res.status(500).json({ message: 'Erreur lors de la vérification du code de réinitialisation.', error: err });
+    }
+
+    if (results.length > 0) {
+      const hashedNewCode = await bcrypt.hash(newCode, 10);
+      const updateQuery = 'UPDATE users SET authCode = ?, resetCode = NULL, resetCodeExpires = NULL WHERE email = ?';
+      db.query(updateQuery, [hashedNewCode, email], (err) => {
+        if (err) {
+          console.error('Erreur lors de la mise à jour du code de sécurité:', err);
+          return res.status(500).json({ message: 'Erreur lors de la mise à jour du code de sécurité.', error: err });
+        }
+        res.status(200).json({ message: 'Code de sécurité mis à jour avec succès.' });
+      });
+    } else {
+      res.status(400).json({ message: 'Code de réinitialisation invalide ou expiré.' });
+    }
   });
 });
 
