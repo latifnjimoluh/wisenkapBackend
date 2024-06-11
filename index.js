@@ -5,11 +5,18 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const session = require('express-session');
 const nodemailer = require('nodemailer');
+const admin = require('firebase-admin'); // Ajouté
 
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialiser Firebase Admin SDK
+const serviceAccount = require('./serviceAccountKey.json'); // Remplacez par le chemin réel de votre fichier de clé de compte de service
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 // Connexion MySQL
 const db = mysql.createConnection({
@@ -46,7 +53,110 @@ app.get('/test', (req, res) => {
   res.send('Le serveur fonctionne');
 });
 
+// Ajouter un jeton FCM
+app.post('/notifications/token', (req, res) => {
+  const { token } = req.body;
+  const userId = req.session.user?.id;
 
+  if (!userId) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'INSERT INTO fcm_tokens (userId, token) VALUES (?, ?) ON DUPLICATE KEY UPDATE token = ?';
+  db.query(query, [userId, token, token], (err) => {
+    if (err) {
+      console.error('Erreur lors de l\'ajout du jeton FCM:', err);
+      return res.status(500).json({ message: 'Erreur lors de l\'ajout du jeton FCM.', error: err });
+    }
+    res.status(200).json({ message: 'Jeton FCM ajouté avec succès.' });
+  });
+});
+
+// Supprimer un jeton FCM
+app.post('/notifications/remove-token', (req, res) => {
+  const { token } = req.body;
+  const userId = req.session.user?.id;
+
+  if (!userId) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'DELETE FROM fcm_tokens WHERE userId = ? AND token = ?';
+  db.query(query, [userId, token], (err) => {
+    if (err) {
+      console.error('Erreur lors de la suppression du jeton FCM:', err);
+      return res.status(500).json({ message: 'Erreur lors de la suppression du jeton FCM.', error: err });
+    }
+    res.status(200).json({ message: 'Jeton FCM supprimé avec succès.' });
+  });
+});
+
+// Fonction pour envoyer une notification
+const sendNotification = async (userId, title, body) => {
+  try {
+    const query = 'SELECT token FROM fcm_tokens WHERE userId = ?';
+    db.query(query, [userId], async (err, results) => {
+      if (err) {
+        console.error('Erreur lors de la récupération des jetons FCM:', err);
+        return;
+      }
+
+      if (results.length > 0) {
+        const tokens = results.map(result => result.token);
+        const message = {
+          notification: {
+            title,
+            body,
+          },
+          tokens,
+        };
+
+        const response = await admin.messaging().sendMulticast(message);
+        console.log('Notifications envoyées:', response.successCount);
+      } else {
+        console.log('Aucun jeton FCM trouvé pour l\'utilisateur:', userId);
+      }
+    });
+  } catch (error) {
+    console.error('Erreur lors de l\'envoi de la notification:', error);
+  }
+};
+
+// Récupérer les préférences de notification
+app.get('/notifications', (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const query = 'SELECT * FROM notifications WHERE userId = ?';
+  db.query(query, [req.session.user.id], (err, results) => {
+    if (err) {
+      return res.status(500).json({ message: 'Erreur lors de la récupération des préférences de notification.', error: err });
+    }
+    res.status(200).json(results[0]);
+  });
+});
+
+// Mettre à jour les préférences de notification
+app.put('/notifications', (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ message: 'Utilisateur non authentifié.' });
+  }
+
+  const { isEnabled, notificationTime } = req.body;
+  const query = `
+    INSERT INTO notifications (userId, isEnabled, notificationTime)
+    VALUES (?, ?, ?)
+    ON DUPLICATE KEY UPDATE isEnabled = VALUES(isEnabled), notificationTime = VALUES(notificationTime)
+  `;
+
+  db.query(query, [req.session.user.id, isEnabled, notificationTime], (err, result) => {
+    if (err) {
+      return res.status(500).json({ message: 'Erreur lors de la mise à jour des préférences de notification.', error: err });
+    }
+    res.status(200).json({ message: 'Préférences de notification mises à jour avec succès.' });
+  });
+});
 
 
 // Route d'inscription
@@ -76,7 +186,7 @@ app.post('/auth/signup', async (req, res) => {
 
 // Route de connexion
 app.post('/auth/login', (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, fcmToken } = req.body; // Ajout de fcmToken
   console.log('Requête de connexion reçue:', { email, password });
 
   if (!email || !password) {
@@ -117,6 +227,19 @@ app.post('/auth/login', (req, res) => {
     };
 
     console.log('Connexion réussie:', req.session.user);
+
+    // Ajouter le jeton FCM à la base de données
+    if (fcmToken) {
+      const tokenQuery = 'INSERT INTO fcm_tokens (userId, token) VALUES (?, ?) ON DUPLICATE KEY UPDATE token = ?';
+      db.query(tokenQuery, [user.id, fcmToken, fcmToken], (err) => {
+        if (err) {
+          console.error('Erreur lors de l\'ajout du jeton FCM:', err);
+        } else {
+          console.log('Jeton FCM ajouté avec succès');
+        }
+      });
+    }
+
     res.status(200).json({ message: 'Connexion réussie.', user: req.session.user });
   });
 });
@@ -127,7 +250,7 @@ app.get('/auth/user', (req, res) => {
     console.warn('Utilisateur non authentifié');
     return res.status(401).json({ message: 'Utilisateur non authentifié.' });
   }
-  
+
   const query = 'SELECT email, phone, firstName, gender, dob, country, postalCode, photoUri FROM users WHERE id = ?';
   db.query(query, [req.session.user.id], (err, results) => {
     if (err) {
@@ -157,6 +280,39 @@ app.put('/auth/user', (req, res) => {
   });
 });
 
+// Route de déconnexion
+app.post('/auth/logout', (req, res) => {
+  const { fcmToken } = req.body; // Ajouté pour supprimer le token à la déconnexion
+  const userId = req.session.user?.id;
+
+  if (userId) {
+    console.log('Déconnexion de l\'utilisateur:', req.session.user.email);
+
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Erreur lors de la destruction de la session:', err);
+        return res.status(500).json({ message: 'Erreur lors de la déconnexion.' });
+      }
+
+      // Supprimer le jeton FCM
+      if (fcmToken) {
+        const query = 'DELETE FROM fcm_tokens WHERE userId = ? AND token = ?';
+        db.query(query, [userId, fcmToken], (err) => {
+          if (err) {
+            console.error('Erreur lors de la suppression du jeton FCM:', err);
+          } else {
+            console.log('Jeton FCM supprimé avec succès');
+          }
+        });
+      }
+
+      res.status(200).json({ message: 'Déconnexion réussie.' });
+    });
+  } else {
+    console.warn('Échec de la déconnexion: Aucun utilisateur en session');
+    return res.status(400).json({ message: 'Vous n\'êtes pas connecté.' });
+  }
+});
 
 // Récupérer les budgets de l'utilisateur connecté
 app.get('/budgets', (req, res) => {
@@ -177,22 +333,6 @@ app.get('/budgets', (req, res) => {
     res.status(200).json(results);
   });
 });
-
-app.get('/budgets/:budgetId/expenses', (req, res) => {
-  const { budgetId } = req.params;
-
-  // SQL query pour obtenir les dépenses pour le budget donné
-  const query = 'SELECT * FROM expenses WHERE budgetId = ?';
-  db.query(query, [budgetId], (err, results) => {
-    if (err) {
-      console.error('Erreur lors de la récupération des dépenses:', err);
-      return res.status(500).json({ message: 'Erreur lors de la récupération des dépenses.', error: err });
-    }
-    res.status(200).json(results);
-  });
-});
-
-
 
 // Ajouter un budget
 app.post('/budgets', (req, res) => {
@@ -321,7 +461,6 @@ app.get('/transactions', (req, res) => {
   });
 });
 
-
 // Ajouter une épargne à un budget
 app.post('/savings', (req, res) => {
   const { budgetId, amount, date } = req.body;
@@ -375,25 +514,7 @@ app.get('/savings', (req, res) => {
   });
 });
 
-
-// Route de déconnexion
-app.post('/auth/logout', (req, res) => {
-  if (req.session.user) {
-    console.log('Déconnexion de l\'utilisateur:', req.session.user.email);
-    req.session.destroy((err) => {
-      if (err) {
-        console.error('Erreur lors de la destruction de la session:', err);
-        return res.status(500).json({ message: 'Erreur lors de la déconnexion.' });
-      }
-      res.status(200).json({ message: 'Déconnexion réussie.' });
-    });
-  } else {
-    console.warn('Échec de la déconnexion: Aucun utilisateur en session');
-    return res.status(400).json({ message: 'Vous n\'êtes pas connecté.' });
-  }
-});
-
-// Ajouter une route pour supprimer un budget
+// Supprimer un budget
 app.delete('/budgets/:budgetId', (req, res) => {
   const { budgetId } = req.params;
 
@@ -435,8 +556,6 @@ app.delete('/budgets/:budgetId', (req, res) => {
     });
   });
 });
-
-
 
 // API pour obtenir toutes les devises
 app.get('/currencies', (req, res) => {
@@ -480,7 +599,6 @@ app.get('/currencies/active', (req, res) => {
   });
 });
 
-
 // Transporteur pour envoyer des e-mails
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -496,6 +614,8 @@ app.post('/auth/send-reset-code', (req, res) => {
   const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
   const resetCodeExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
+  console.log('Envoi du code de réinitialisation:', { resetCode, resetCodeExpires, email });
+
   // Stocker le code et l'expiration dans la base de données
   const query = 'UPDATE users SET resetCode = ?, resetCodeExpires = ? WHERE email = ?';
   db.query(query, [resetCode, resetCodeExpires, email], (err, result) => {
@@ -503,6 +623,8 @@ app.post('/auth/send-reset-code', (req, res) => {
       console.error('Erreur lors de l\'enregistrement du code de réinitialisation:', err);
       return res.status(500).json({ message: 'Erreur lors de l\'enregistrement du code de réinitialisation.', error: err });
     }
+
+    console.log('Code de réinitialisation enregistré:', result);
 
     // Envoyer le code par e-mail
     const mailOptions = {
@@ -526,6 +648,12 @@ app.post('/auth/send-reset-code', (req, res) => {
 // Vérification du code de réinitialisation
 app.post('/auth/verify-reset-code', (req, res) => {
   const { resetCode, email } = req.body;
+  console.log('Vérification du code de réinitialisation:', { resetCode, email });
+
+  if (!resetCode || !email) {
+    return res.status(400).json({ message: 'Code de réinitialisation ou email manquant.' });
+  }
+
   const query = 'SELECT * FROM users WHERE resetCode = ? AND email = ? AND resetCodeExpires > NOW()';
   db.query(query, [resetCode, email], (err, results) => {
     if (err) {
@@ -533,6 +661,7 @@ app.post('/auth/verify-reset-code', (req, res) => {
       return res.status(500).json({ message: 'Erreur lors de la vérification du code de réinitialisation.', error: err });
     }
 
+    console.log('Résultats de la vérification:', results);
     if (results.length > 0) {
       res.status(200).json({ isValid: true });
     } else {
@@ -540,6 +669,7 @@ app.post('/auth/verify-reset-code', (req, res) => {
     }
   });
 });
+
 
 // Mettre à jour le code de sécurité
 app.post('/auth/update-code', async (req, res) => {
@@ -566,7 +696,6 @@ app.post('/auth/update-code', async (req, res) => {
     }
   });
 });
-
 
 app.listen(PORT, () => {
   console.log(`Le serveur fonctionne sur le port ${PORT}`);
