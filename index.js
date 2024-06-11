@@ -395,6 +395,93 @@ app.post('/auth/logout', (req, res) => {
   }
 });
 
+// Ajouter une route pour supprimer un budget
+app.delete('/budgets/:budgetId', (req, res) => {
+  const { budgetId } = req.params;
+
+  // Commencer par supprimer les dépenses associées au budget
+  const deleteExpensesQuery = 'DELETE FROM expenses WHERE budgetId = ?';
+  db.query(deleteExpensesQuery, [budgetId], (err, result) => {
+    if (err) {
+      console.error('Erreur lors de la suppression des dépenses:', err);
+      return res.status(500).json({ message: 'Erreur lors de la suppression des dépenses.', error: err });
+    }
+
+    // Supprimer les revenus associés au budget
+    const deleteRevenuesQuery = 'DELETE FROM revenus WHERE budgetId = ?';
+    db.query(deleteRevenuesQuery, [budgetId], (err, result) => {
+      if (err) {
+        console.error('Erreur lors de la suppression des revenus:', err);
+        return res.status(500).json({ message: 'Erreur lors de la suppression des revenus.', error: err });
+      }
+
+      // Supprimer la période associée au budget
+      const deletePeriodsQuery = 'DELETE FROM periods WHERE budgetId = ?';
+      db.query(deletePeriodsQuery, [budgetId], (err, result) => {
+        if (err) {
+          console.error('Erreur lors de la suppression de la période:', err);
+          return res.status(500).json({ message: 'Erreur lors de la suppression de la période.', error: err });
+        }
+
+        // Enfin, supprimer le budget lui-même
+        const deleteBudgetQuery = 'DELETE FROM budgets WHERE id = ?';
+        db.query(deleteBudgetQuery, [budgetId], (err, result) => {
+          if (err) {
+            console.error('Erreur lors de la suppression du budget:', err);
+            return res.status(500).json({ message: 'Erreur lors de la suppression du budget.', error: err });
+          }
+
+          res.status(200).json({ message: 'Budget supprimé avec succès.' });
+        });
+      });
+    });
+  });
+});
+
+
+
+// API pour obtenir toutes les devises
+app.get('/currencies', (req, res) => {
+  const sql = 'SELECT * FROM currencies';
+  db.query(sql, (err, results) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    res.json({ currencies: results });
+  });
+});
+
+// API pour mettre à jour la devise active
+app.post('/currencies/activate', (req, res) => {
+  const { id } = req.body;
+  db.query('UPDATE currencies SET is_active = 0', [], (err) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    db.query('UPDATE currencies SET is_active = 1 WHERE id = ?', [id], (err) => {
+      if (err) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      res.json({ message: 'Devise activée avec succès' });
+    });
+  });
+});
+
+// API pour obtenir la devise active
+app.get('/currencies/active', (req, res) => {
+  const sql = 'SELECT * FROM currencies WHERE is_active = 1 LIMIT 1';
+  db.query(sql, (err, results) => {
+    if (err) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    res.json({ currency: results[0] });
+  });
+});
+
 
 app.listen(PORT, () => {
   console.log(`Le serveur fonctionne sur le port ${PORT}`);
